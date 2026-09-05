@@ -1,0 +1,372 @@
+<title>PPT Populator Rework</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root{
+    --bg:#f6f3ec;
+    --surface:#ffffff;
+    --surface-2:#efe9dd;
+    --border:#e0d8c7;
+    --border-soft:#eae3d4;
+    --ink:#231f19;
+    --ink-soft:#514a3d;
+    --muted:#8a8271;
+    --accent:#b5541f;
+    --accent-soft:#f6e2d3;
+    --storage:#0d7d6f;
+    --storage-soft:#d9efeb;
+    --search:#4338ab;
+    --search-soft:#e6e4f7;
+    --good:#1f7a4d;
+    --good-soft:#dcf0e4;
+    --bad:#b23b3b;
+    --bad-soft:#f8e2e0;
+    --code-bg:#efe9dd;
+    --shadow: 0 1px 2px rgba(35,31,25,.05), 0 10px 28px -16px rgba(35,31,25,.18);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#181510;
+      --surface:#211d17;
+      --surface-2:#28221a;
+      --border:#3a3225;
+      --border-soft:#332c22;
+      --ink:#f2ede1;
+      --ink-soft:#cbc2ac;
+      --muted:#94886e;
+      --accent:#e2894f;
+      --accent-soft:#3a2415;
+      --storage:#43c2ac;
+      --storage-soft:#132c27;
+      --search:#a29cf0;
+      --search-soft:#211f3a;
+      --good:#5fce93;
+      --good-soft:#123023;
+      --bad:#f2938a;
+      --bad-soft:#3a1e1c;
+      --code-bg:#28221a;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -16px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#181510; --surface:#211d17; --surface-2:#28221a; --border:#3a3225; --border-soft:#332c22;
+    --ink:#f2ede1; --ink-soft:#cbc2ac; --muted:#94886e;
+    --accent:#e2894f; --accent-soft:#3a2415;
+    --storage:#43c2ac; --storage-soft:#132c27;
+    --search:#a29cf0; --search-soft:#211f3a;
+    --good:#5fce93; --good-soft:#123023;
+    --bad:#f2938a; --bad-soft:#3a1e1c;
+    --code-bg:#28221a;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 28px -16px rgba(0,0,0,.6);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:'Public Sans', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{ background:var(--accent-soft); color:var(--ink); }
+  a{ color:var(--accent); }
+  code, .mono{ font-family:'IBM Plex Mono', ui-monospace, Consolas, monospace; font-variant-numeric:tabular-nums; }
+
+  .wrap{ max-width:920px; margin:0 auto; padding:0 28px 96px; }
+
+  header.top{
+    padding:56px 28px 40px; border-bottom:1px solid var(--border);
+    background:
+      linear-gradient(180deg, var(--surface-2), transparent 140%);
+  }
+  header.top .inner{ max-width:920px; margin:0 auto; }
+  .eyebrow{
+    font-family:'IBM Plex Mono'; font-size:12px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 14px;
+  }
+  h1{
+    font-family:'Fraunces', Georgia, serif; font-optical-sizing:auto;
+    font-weight:600; font-size:clamp(34px,5vw,50px); line-height:1.06;
+    margin:0 0 16px; text-wrap:balance; letter-spacing:-.01em;
+  }
+  header.top p.lede{
+    font-size:17px; line-height:1.6; color:var(--ink-soft); max-width:62ch; margin:0;
+  }
+  .badge-row{ display:flex; flex-wrap:wrap; gap:8px; margin-top:24px; }
+  .badge{
+    display:inline-flex; align-items:center; gap:6px;
+    font-family:'IBM Plex Mono'; font-size:12.5px; padding:6px 11px; border-radius:100px;
+    border:1px solid var(--border); background:var(--surface); color:var(--ink-soft);
+  }
+  .badge .dot{ width:7px; height:7px; border-radius:50%; background:var(--good); flex:none; }
+
+  section{ padding:52px 0; border-bottom:1px solid var(--border-soft); }
+  section:last-of-type{ border-bottom:none; }
+  h2{
+    font-family:'Fraunces', Georgia, serif; font-weight:600; font-size:26px;
+    margin:0 0 8px; letter-spacing:-.01em; text-wrap:balance;
+  }
+  .section-note{ color:var(--muted); font-size:14.5px; margin:0 0 28px; max-width:66ch; line-height:1.55; }
+
+  /* three pillars */
+  .pillars{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  @media (max-width:760px){ .pillars{ grid-template-columns:1fr; } }
+  .pillar{
+    background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    padding:22px 20px; box-shadow:var(--shadow);
+  }
+  .pillar .tag{
+    display:inline-block; font-family:'IBM Plex Mono'; font-size:11px; letter-spacing:.06em;
+    text-transform:uppercase; padding:4px 9px; border-radius:6px; margin-bottom:14px;
+  }
+  .pillar.doc .tag{ background:var(--accent-soft); color:var(--accent); }
+  .pillar.store .tag{ background:var(--storage-soft); color:var(--storage); }
+  .pillar.pick .tag{ background:var(--search-soft); color:var(--search); }
+  .pillar h3{ font-size:16.5px; margin:0 0 8px; font-weight:600; }
+  .pillar p{ font-size:14px; line-height:1.6; color:var(--ink-soft); margin:0; }
+  .pillar .before{ font-size:12.5px; color:var(--muted); margin-top:12px; padding-top:12px; border-top:1px dashed var(--border); }
+  .pillar .before b{ color:var(--ink-soft); font-weight:600; }
+
+  /* workflow */
+  .flow{ display:flex; flex-direction:column; gap:0; }
+  .step{ display:grid; grid-template-columns:40px 1fr; gap:18px; position:relative; }
+  .step .rail{ display:flex; flex-direction:column; align-items:center; }
+  .step .num{
+    width:32px; height:32px; border-radius:50%; background:var(--surface); border:1.5px solid var(--accent);
+    color:var(--accent); font-family:'IBM Plex Mono'; font-weight:600; font-size:13px;
+    display:flex; align-items:center; justify-content:center; flex:none; z-index:1;
+  }
+  .step .line{ width:1.5px; flex:1; background:var(--border); margin:2px 0; }
+  .step:last-child .line{ display:none; }
+  .step .body{ padding-bottom:30px; }
+  .step .body h4{ font-size:15.5px; margin:2px 0 6px; font-weight:600; }
+  .step .body p{ font-size:14px; line-height:1.6; color:var(--ink-soft); margin:0; max-width:62ch; }
+  .step .body .chip{
+    display:inline-block; font-family:'IBM Plex Mono'; font-size:11.5px; padding:2px 8px; border-radius:5px;
+    margin-top:8px; margin-right:6px;
+  }
+  .chip.storage{ background:var(--storage-soft); color:var(--storage); }
+  .chip.search{ background:var(--search-soft); color:var(--search); }
+  .chip.accent{ background:var(--accent-soft); color:var(--accent); }
+
+  /* table */
+  .tablewrap{ overflow-x:auto; border:1px solid var(--border); border-radius:12px; background:var(--surface); box-shadow:var(--shadow); }
+  table{ width:100%; border-collapse:collapse; font-size:13.5px; min-width:520px; }
+  th{
+    text-align:left; font-family:'IBM Plex Mono'; font-weight:500; font-size:11.5px; letter-spacing:.04em;
+    text-transform:uppercase; color:var(--muted); padding:12px 16px; border-bottom:1px solid var(--border);
+    background:var(--surface-2);
+  }
+  td{ padding:11px 16px; border-bottom:1px solid var(--border-soft); color:var(--ink-soft); vertical-align:top; }
+  tr:last-child td{ border-bottom:none; }
+  td.k{ font-family:'IBM Plex Mono'; color:var(--ink); white-space:nowrap; }
+  td.req{ font-size:12px; }
+  .req.yes{ color:var(--bad); }
+  .req.no{ color:var(--muted); }
+
+  /* status card */
+  .status{
+    background:var(--good-soft); border:1px solid color-mix(in srgb, var(--good) 35%, var(--border));
+    border-radius:12px; padding:20px 22px; margin-top:24px;
+  }
+  .status h4{ margin:0 0 10px; font-size:14.5px; color:var(--good); display:flex; align-items:center; gap:8px; }
+  .status h4::before{ content:"✓"; font-family:'IBM Plex Mono'; }
+  .status dl{ display:grid; grid-template-columns:max-content 1fr; gap:5px 16px; margin:0; font-size:13.5px; }
+  .status dt{ color:var(--muted); font-family:'IBM Plex Mono'; font-size:12px; }
+  .status dd{ margin:0; color:var(--ink); font-family:'IBM Plex Mono'; word-break:break-all; }
+
+  /* bug fix callout */
+  .fix{ display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:8px; }
+  @media (max-width:760px){ .fix{ grid-template-columns:1fr; } }
+  .fix .card{ border-radius:12px; padding:18px 20px; border:1px solid var(--border); }
+  .fix .before{ background:var(--bad-soft); border-color:color-mix(in srgb, var(--bad) 30%, var(--border)); }
+  .fix .after{ background:var(--good-soft); border-color:color-mix(in srgb, var(--good) 30%, var(--border)); }
+  .fix .card .label{ font-family:'IBM Plex Mono'; font-size:11px; text-transform:uppercase; letter-spacing:.06em; margin-bottom:10px; display:block; }
+  .fix .before .label{ color:var(--bad); }
+  .fix .after .label{ color:var(--good); }
+  .fix .card p{ font-size:13.5px; line-height:1.6; margin:0; color:var(--ink-soft); }
+  .fix code{ background:var(--code-bg); padding:1px 5px; border-radius:4px; font-size:12.5px; }
+
+  .filepill{
+    display:inline-flex; align-items:center; gap:6px; font-family:'IBM Plex Mono'; font-size:12.5px;
+    background:var(--code-bg); border:1px solid var(--border); border-radius:7px; padding:4px 9px; margin:2px 4px 2px 0;
+  }
+
+  footer{ padding:36px 0 8px; color:var(--muted); font-size:12.5px; text-align:center; }
+</style>
+
+<header class="top">
+  <div class="inner">
+    <p class="eyebrow">Engineering summary — PPT Template Populator</p>
+    <h1>Ek upload, ek click, poori presentation.</h1>
+    <p class="lede">Topic type karne ki jagah ab document upload hota hai; template binaries Elasticsearch se hatkar MinIO object storage mein jaate hain; aur template selection ab automatic ya manual — dono tarah se ho sakti hai. Neeche poora workflow, live verification, aur ek UI bug fix hai.</p>
+    <div class="badge-row">
+      <span class="badge"><span class="dot"></span>111/111 tests passing</span>
+      <span class="badge"><span class="dot"></span>MinIO connected — 11.0.0.109:9000</span>
+      <span class="badge"><span class="dot"></span>1 template migrated live</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2>Teen badlaav</h2>
+    <p class="section-note">Har badlaav apni jagah independent hai, lekin teeno milkar poore intake se lekar generation tak ke flow ko simplify karte hain.</p>
+    <div class="pillars">
+      <div class="pillar doc">
+        <span class="tag">Intake</span>
+        <h3>Topic box → Document upload</h3>
+        <p>User ab sirf ek file upload karta hai — <strong>DOCX, PDF, TXT, MD, RTF, ya legacy DOC</strong>. Title, audience, tone, aur slide count sab document se khud-ba-khud nikal liye jaate hain. Koi extra field bharne ki zaroorat nahi.</p>
+        <div class="before"><b>Pehle:</b> topic, demand, source content, audience, tone, sections — 8 alag text fields.</div>
+      </div>
+      <div class="pillar store">
+        <span class="tag">Storage</span>
+        <h3>Elasticsearch → MinIO</h3>
+        <p>PPTX binaries (aur ab uploaded documents bhi) ab <strong>MinIO</strong> object storage mein rehte hain. Elasticsearch sirf searchable metadata + vector embeddings rakhta hai — hybrid AI search wahi ki wahi taakatwar rehti hai, sirf ES ka size chhota ho gaya.</p>
+        <div class="before"><b>Pehle:</b> har PPTX base64-encoded ho kar seedha ES document ke andar store hota tha.</div>
+      </div>
+      <div class="pillar pick">
+        <span class="tag">Selection</span>
+        <h3>Automatic + Manual toggle</h3>
+        <p>Ek radio button: <strong>Automatic</strong> (AI top-5 candidates mein se best template chunta hai) ya <strong>Manual</strong> (user seedha dropdown se apni pasand ka template select karta hai). Dono modes same robust generation pipeline use karte hain.</p>
+        <div class="before"><b>Pehle:</b> sirf automatic AI selection — koi manual override nahi tha.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>End-to-end workflow</h2>
+    <p class="section-note">Jab user "Generate Presentation" click karta hai, ye 7 steps chalte hain — order matter karta hai kyunki har step agle ke liye data taiyaar karta hai.</p>
+    <div class="flow">
+      <div class="step">
+        <div class="rail"><div class="num">1</div><div class="line"></div></div>
+        <div class="body">
+          <h4>Document upload &amp; extraction</h4>
+          <p>Uploaded file type detect hoti hai; <code>python-docx</code> / <code>pypdf</code> / <code>striprtf</code> se text nikala jaata hai. Title, body text aur ek heuristic <em>desired slide count</em> (~120 words/slide) automatically compute hote hain.</p>
+          <span class="chip accent">src/document_extractor.py</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="rail"><div class="num">2</div><div class="line"></div></div>
+        <div class="body">
+          <h4>Document archive (optional)</h4>
+          <p>Original uploaded file ka ek copy audit ke liye MinIO ke <code>ppt-uploads</code> bucket mein save ho jaata hai — best-effort, generation ko block nahi karta.</p>
+          <span class="chip storage">MinIO · ppt-uploads</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="rail"><div class="num">3</div><div class="line"></div></div>
+        <div class="body">
+          <h4>Template routing</h4>
+          <p><strong>Automatic:</strong> extracted content ka embedding banta hai → Elasticsearch hybrid search (BM25 + cosine similarity) top-5 candidates deta hai → watsonx.ai unmein se best chunta hai.<br><strong>Manual:</strong> user ne jo dropdown se chuna, seedha wahi use hota hai — retrieval/selection skip.</p>
+          <span class="chip search">Elasticsearch · hybrid_search</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="rail"><div class="num">4</div><div class="line"></div></div>
+        <div class="body">
+          <h4>Binary fetch + checksum</h4>
+          <p>Selected template ka actual <code>.pptx</code> binary MinIO se fetch hota hai; SHA-256 checksum verify hoti hai taaki corrupted ya tampered file kabhi populate na ho.</p>
+          <span class="chip storage">MinIO · ppt-templates</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="rail"><div class="num">5</div><div class="line"></div></div>
+        <div class="body">
+          <h4>Chunked content generation</h4>
+          <p>Template ke required targets ko slides ke chunks (max 4 slides / chunk) mein todkar watsonx.ai se content generate hota hai — schema validate hoti hai, invalid response ek baar controlled repair leta hai.</p>
+          <span class="chip accent">watsonx.ai · granite</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="rail"><div class="num">6</div><div class="line"></div></div>
+        <div class="body">
+          <h4>Focused recovery (naya: graceful fallback)</h4>
+          <p>Jo targets pehle round mein miss ho jaate hain, unke liye ek batched retry hota hai. Agar retries ke baad bhi koi target resolve nahi hota — ab pipeline crash nahi hota; safe placeholder text daal ke ek warning ke saath aage badh jaata hai.</p>
+          <span class="chip accent">Bug fix — neeche detail</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="rail"><div class="num">7</div></div>
+        <div class="body">
+          <h4>PPTX populate &amp; download</h4>
+          <p>Validated content template ke andar likha jaata hai, temporary file clean ho jaati hai, aur final <code>.pptx</code> download button ke through mil jaati hai.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>UI error fix — "Unresolved required target keys"</h2>
+    <p class="section-note">Ye error aapke template mein bahut saare required table-cell targets hone ki wajah se aa raha tha — model kabhi-kabhi retries ke baad bhi kuch targets ke liye content nahi de paata tha, aur pipeline poori tarah fail ho jaata tha.</p>
+    <div class="fix">
+      <div class="card before">
+        <span class="label">Pehle</span>
+        <p>Retries ke baad bhi agar ek bhi required target unresolved rehta, <code>ResponseValidationError</code> raise ho jaata — pura generation fail, kuch download nahi hota.</p>
+      </div>
+      <div class="card after">
+        <span class="label">Ab</span>
+        <p>Unresolved targets ke liye safe placeholder text (existing text ya role-based generic filler) insert hota hai, aur ek warning list ke saath user ko exact slide/shape numbers dikhaye jaate hain — presentation ban jaati hai, review karna aasan.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>MinIO — environment variables</h2>
+    <p class="section-note">Ye <span class="filepill">.env</span> mein already add ho chuke hain aur live server (<code>11.0.0.109:9000</code>) se successfully connect ho gaye hain.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Variable</th><th>Meaning</th><th>Required</th></tr></thead>
+        <tbody>
+          <tr><td class="k">MINIO_ENDPOINT</td><td>Server address, bina <code>http://</code> ke — <code>host:port</code></td><td class="req yes">Yes</td></tr>
+          <tr><td class="k">MINIO_ACCESS_KEY</td><td>Console ke Identity → Access Keys se mila key</td><td class="req yes">Yes</td></tr>
+          <tr><td class="k">MINIO_SECRET_KEY</td><td>Access key ka corresponding secret</td><td class="req yes">Yes</td></tr>
+          <tr><td class="k">MINIO_SECURE</td><td><code>true</code> agar HTTPS endpoint hai</td><td class="req no">No — default false</td></tr>
+          <tr><td class="k">MINIO_TEMPLATES_BUCKET</td><td>PPTX template binaries ke liye bucket</td><td class="req no">No — default ppt-templates</td></tr>
+          <tr><td class="k">MINIO_UPLOADS_BUCKET</td><td>User-uploaded documents ke audit archive ke liye</td><td class="req no">No — default ppt-uploads</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="status">
+      <h4>Live verification — abhi-abhi chalake dekha</h4>
+      <dl>
+        <dt>MinIO</dt><dd>Connected — 13 existing buckets shared server par mile</dd>
+        <dt>Migrated template</dt><dd>Modern Startup Pitch Deck (27,352,480 bytes)</dd>
+        <dt>New location</dt><dd>minio://ppt-templates/White_Blue_and_Grey_Modern_Startup_Pitch_Deck_Presentation-...pptx</dd>
+        <dt>Checksum</dt><dd>2337dad1c7c0…6eedc — match confirmed</dd>
+        <dt>Elasticsearch doc</dt><dd>pptx_binary field removed, minio_bucket + minio_object_key added</dd>
+        <dt>Test suite</dt><dd>111 passed, 0 failed</dd>
+      </dl>
+    </div>
+  </section>
+
+  <section>
+    <h2>Aage kya karna hai</h2>
+    <p class="section-note">Code aur infra dono ready hain. Bas ye baaki hai:</p>
+    <div class="flow">
+      <div class="step">
+        <div class="rail"><div class="num">1</div><div class="line"></div></div>
+        <div class="body">
+          <h4>App chalao</h4>
+          <p><code>streamlit run app.py</code> se UI khulegi — ab sirf upload + template-mode toggle dikhega, baaki sab automatic hai.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="rail"><div class="num">2</div><div class="line"></div></div>
+        <div class="body">
+          <h4>Aur templates ingest karo</h4>
+          <p>Filhaal sirf 1 template hai. <code>python scripts/ingest_template.py &lt;file.pptx&gt; --name "..."</code> se naye templates seedha MinIO + Elasticsearch dono mein chale jaayenge.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="rail"><div class="num">3</div></div>
+        <div class="body">
+          <h4>Ek real document se test karo</h4>
+          <p>Koi bhi DOCX/PDF upload karke pura flow end-to-end try karo — extraction preview, template selection, aur final download sab UI mein hi dikhega.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer>PPT Template Populator — internal engineering summary · 2026-09-03</footer>
