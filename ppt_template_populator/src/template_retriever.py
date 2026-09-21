@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 
 import logging
 from collections.abc import Mapping
@@ -9,6 +10,36 @@ from .minio_client import get_object
 
 SAFE_EXCLUDES = ["template_embedding"]
 logger = logging.getLogger(__name__)
+MAX_RETRIEVAL_QUERY_CHARACTERS = 1800
+
+
+def _grounded_excerpt(text: str, budget: int) -> str:
+    """Sample beginning, middle and end without asking the embedding model to summarize."""
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if len(normalized) <= budget:
+        return normalized
+    if budget < 30:
+        return normalized[:budget]
+    part = max(1, (budget - 10) // 3)
+    middle = max(0, len(normalized) // 2 - part // 2)
+    return f"{normalized[:part]} ... {normalized[middle:middle + part]} ... {normalized[-part:]}"[:budget]
+
+
+def build_retrieval_query(*, topic: str, source_content: str, complete_demand: str = "",
+                          audience: str = "", tone: str = "",
+                          required_sections: list[str] | None = None,
+                          visual_preferences: str = "",
+                          additional_instructions: str = "") -> str:
+    """Build a model-safe embedding query while preserving grounded coverage."""
+    guidance = [topic, complete_demand, audience, tone,
+                ", ".join(required_sections or []), visual_preferences,
+                additional_instructions]
+    compact_guidance = [re.sub(r"\s+", " ", value).strip()[:240]
+                        for value in guidance if value and value.strip()]
+    prefix = " | ".join(compact_guidance)
+    source_budget = max(200, MAX_RETRIEVAL_QUERY_CHARACTERS - len(prefix) - 3)
+    excerpt = _grounded_excerpt(source_content, source_budget)
+    return " | ".join(filter(None, [prefix, excerpt]))[:MAX_RETRIEVAL_QUERY_CHARACTERS]
 
 
 class InvalidTemplateIdError(TypeError): pass
@@ -51,6 +82,15 @@ def candidate_match_score(candidate: dict[str, Any], requirements: dict[str, Any
         delta = abs(candidate.get("slide_count", 0) - desired); (matched if delta <= max(1, round(desired * .2)) else unmatched).append("slide_count")
     visual = requirements.get("visual_preferences", "").lower()
     if visual: (matched if any(word in candidate.get("visual_style", "").lower() for word in visual.split()) else unmatched).append("visual_style")
+    source_terms = set(re.findall(r"[a-z0-9]{4,}", f"{requirements.get('topic', '')} {requirements.get('source_content', '')[:3000]}".lower()))
+    candidate_text = " ".join(str(candidate.get(field, "")) for field in (
+        "template_name", "description", "category", "template_profile", "visual_style",
+        "use_cases", "supported_sections",
+    )).lower()
+    candidate_terms = set(re.findall(r"[a-z0-9]{4,}", candidate_text))
+    if source_terms:
+        overlap = len(source_terms & candidate_terms) / max(1, min(len(source_terms), 20))
+        (matched if overlap >= .05 else unmatched).append("document_topic")
     total = len(matched) + len(unmatched)
     return (len(matched) / total if total else 1.0), matched, unmatched
 
@@ -117,8 +157,13 @@ class TemplateRetriever:
             response = self.client.search(index=INDEX_NAME, query=query, size=min(max(size, 1), 5), source_excludes=SAFE_EXCLUDES); candidates = []
             for hit in response.get("hits", {}).get("hits", []):
                 candidate = dict(hit["_source"]); candidate["retrieval_score"] = float(hit.get("_score") or 0)
-                match_score, matched, unmatched = candidate_match_score(candidate, requirements); candidate.update({"requirement_match_score": match_score, "matched_requirements": matched, "unmatched_requirements": unmatched}); candidates.append(candidate)
-            return sorted(candidates, key=lambda item: (item["retrieval_score"], item["requirement_match_score"]), reverse=True)
+                match_score, matched, unmatched = candidate_match_score(candidate, requirements)
+                retrieval_score = candidate["retrieval_score"]
+                candidate.update({"requirement_match_score": match_score,
+                                  "rerank_score": retrieval_score * .75 + match_score * .25,
+                                  "matched_requirements": matched,
+                                  "unmatched_requirements": unmatched}); candidates.append(candidate)
+            return sorted(candidates, key=lambda item: (item["rerank_score"], item["retrieval_score"]), reverse=True)
         except Exception as exc: raise elasticsearch_error(exc, "hybrid template retrieval") from exc
 
     def search(self, keyword: str, size: int = 25) -> list[dict[str, Any]]:

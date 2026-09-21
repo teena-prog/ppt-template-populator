@@ -41,6 +41,17 @@ def test_missing_environment_variables(monkeypatch, tmp_path):
     assert {"WATSONX_API_KEY", "WATSONX_PROJECT_ID"}.issubset(settings.watsonx_missing())
 
 
+def test_unwritable_generated_directory_uses_project_fallback(monkeypatch, tmp_path):
+    import config
+    configured = tmp_path / "blocked"
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)
+    monkeypatch.setattr(config, "_directory_writable", lambda path: path != configured)
+    settings = Settings(_env_file=None, templates_dir=tmp_path / "templates",
+                        generated_dir=configured, data_dir=tmp_path / "data")
+    settings.ensure_directories()
+    assert settings.generated_dir == tmp_path.parent / "runtime_generated"
+
+
 def test_mock_elasticsearch_indexing(indexed_template):
     from unittest.mock import MagicMock
     from src.template_indexer import TemplateIndexer

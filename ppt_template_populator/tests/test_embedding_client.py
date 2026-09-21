@@ -73,3 +73,15 @@ def test_malformed_embedding_response(response):
     client = WatsonxEmbeddingClient(MagicMock(), embedding_factory=lambda model_id: model)
     with pytest.raises(EmbeddingDiagnosticError) as caught: client.embed("diagnostic", "ibm/model")
     assert caught.value.category == "malformed_response"
+
+
+def test_sdk_api_request_failure_has_actionable_safe_category():
+    class ApiRequestFailure(Exception):
+        pass
+
+    model = MagicMock(); model.generate.side_effect = ApiRequestFailure("request rejected")
+    client = WatsonxEmbeddingClient(MagicMock(), embedding_factory=lambda model_id: model)
+    with pytest.raises(EmbeddingDiagnosticError) as caught:
+        client.embed("safe input", "ibm/model")
+    assert caught.value.category == "invalid_embedding_request"
+    assert "Test watsonx configuration" in str(caught.value)

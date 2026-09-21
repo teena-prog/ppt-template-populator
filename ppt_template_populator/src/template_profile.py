@@ -1,6 +1,35 @@
 from __future__ import annotations
 
 from typing import Any
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class TemplateProfile(BaseModel):
+    """Canonical complete template contract used after either selection mode."""
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+    template_id: str = Field(min_length=1)
+    template_name: str = Field(min_length=1)
+    slide_count: int = Field(gt=0)
+    slides: list[dict[str, Any]] = Field(min_length=1)
+    checksum_sha256: str = Field(min_length=64, max_length=64)
+    minio_bucket: str = Field(min_length=1)
+    minio_object_key: str = Field(min_length=1)
+    pptx_binary_bytes: bytes
+
+    @model_validator(mode="after")
+    def complete_profile(self) -> "TemplateProfile":
+        if len(self.slides) != self.slide_count:
+            raise ValueError("Template slide metadata does not match slide_count.")
+        for slide in self.slides:
+            if not isinstance(slide.get("slide_number"), int) or not isinstance(slide.get("targets"), list):
+                raise ValueError("Template slide metadata is incomplete.")
+        if not self.pptx_binary_bytes:
+            raise ValueError("Template binary is empty.")
+        return self
+
+
+def canonical_template_profile(document: dict[str, Any]) -> TemplateProfile:
+    return TemplateProfile.model_validate(document)
 
 
 def csv_values(value: str) -> list[str]:

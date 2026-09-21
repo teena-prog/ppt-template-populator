@@ -72,3 +72,11 @@ def delete_object(client: Any, bucket: str, object_key: str) -> None:
         client.remove_object(bucket, object_key)
     except Exception as exc:
         raise MinioUnavailable(f"Object '{object_key}' could not be deleted from bucket '{bucket}'.") from exc
+
+
+def list_object_keys(client: Any, bucket: str) -> list[str]:
+    """List object names in one bucket without reading their contents."""
+    try:
+        return [str(item.object_name) for item in client.list_objects(bucket, recursive=True)]
+    except Exception as exc:
+        raise MinioUnavailable(f"Objects in bucket '{bucket}' could not be listed.") from exc

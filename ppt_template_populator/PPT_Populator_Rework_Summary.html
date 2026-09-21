@@ -1,4 +1,9 @@
-<title>PPT Populator Rework</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PPT Populator - Current Architecture and Fixes</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
@@ -192,16 +197,18 @@
 
   footer{ padding:36px 0 8px; color:var(--muted); font-size:12.5px; text-align:center; }
 </style>
+</head>
+<body>
 
 <header class="top">
   <div class="inner">
     <p class="eyebrow">Engineering summary — PPT Template Populator</p>
     <h1>Ek upload, ek click, poori presentation.</h1>
-    <p class="lede">Topic type karne ki jagah ab document upload hota hai; template binaries Elasticsearch se hatkar MinIO object storage mein jaate hain; aur template selection ab automatic ya manual — dono tarah se ho sakti hai. Neeche poora workflow, live verification, aur ek UI bug fix hai.</p>
+    <p class="lede">Document upload, manual ya automatic template selection, strict watsonx JSON validation, focused recovery aur formatting-preserving PPT population ek hi pipeline mein kaam karte hain. Yeh page current architecture aur latest runtime fixes explain karta hai.</p>
     <div class="badge-row">
-      <span class="badge"><span class="dot"></span>111/111 tests passing</span>
-      <span class="badge"><span class="dot"></span>MinIO connected — 11.0.0.109:9000</span>
-      <span class="badge"><span class="dot"></span>1 template migrated live</span>
+      <span class="badge"><span class="dot"></span>120 tests passing</span>
+      <span class="badge"><span class="dot"></span>Strict target schema enabled</span>
+      <span class="badge"><span class="dot"></span>Manual + automatic selection</span>
     </div>
   </div>
 </header>
@@ -273,7 +280,7 @@
         <div class="rail"><div class="num">5</div><div class="line"></div></div>
         <div class="body">
           <h4>Chunked content generation</h4>
-          <p>Template ke required targets ko slides ke chunks (max 4 slides / chunk) mein todkar watsonx.ai se content generate hota hai — schema validate hoti hai, invalid response ek baar controlled repair leta hai.</p>
+          <p>Template ke required targets ko slides ke chunks (max 4 slides / chunk) mein todkar watsonx.ai se content generate hota hai. Output target mein sirf <code>target_kind</code>, <code>target_id</code> aur <code>content</code> allowed hain; invalid response ek controlled repair leta hai.</p>
           <span class="chip accent">watsonx.ai · granite</span>
         </div>
       </div>
@@ -289,7 +296,7 @@
         <div class="rail"><div class="num">7</div></div>
         <div class="body">
           <h4>PPTX populate &amp; download</h4>
-          <p>Validated content template ke andar likha jaata hai, temporary file clean ho jaati hai, aur final <code>.pptx</code> download button ke through mil jaati hai.</p>
+          <p>Validated content placeholder index ya Canva shape ID se likha jaata hai. Generated titles Aptos 36 pt, bold, centred, 1.0 line spacing aur Normal character spacing use karte hain. Populated slides se isolated stock photos remove hote hain, jabki repeated branding retain hoti hai.</p>
         </div>
       </div>
     </div>
@@ -307,6 +314,43 @@
         <span class="label">Ab</span>
         <p>Unresolved targets ke liye safe placeholder text (existing text ya role-based generic filler) insert hota hai, aur ek warning list ke saath user ko exact slide/shape numbers dikhaye jaate hain — presentation ban jaati hai, review karna aasan.</p>
       </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Latest schema fix</h2>
+    <p class="section-note">Runtime error target objects ke andar copied metadata ki wajah se tha, template selection mode ki wajah se nahi. Isliye fix manual aur automatic dono modes par apply hota hai.</p>
+    <div class="fix">
+      <div class="card before">
+        <span class="label">Model output</span>
+        <p>Model kabhi target ke andar <code>slide_number</code> aur <code>role</code> copy kar raha tha. Strict Pydantic model in fields ko <code>Extra inputs are not permitted</code> ke saath reject karta tha.</p>
+      </div>
+      <div class="card after">
+        <span class="label">Safe handling</span>
+        <p>Prompt ab exact target shape batata hai. Parser matching redundant metadata ko remove karta hai, lekin conflicting slide number, invented IDs aur kisi bhi doosre unexpected field ko ab bhi reject karta hai.</p>
+      </div>
+    </div>
+    <div class="tablewrap" style="margin-top:20px">
+      <table>
+        <thead><tr><th>Target field</th><th>Status</th><th>Reason</th></tr></thead>
+        <tbody>
+          <tr><td class="k">target_kind</td><td class="req yes">Required</td><td><code>placeholder</code> ya <code>shape</code></td></tr>
+          <tr><td class="k">target_id</td><td class="req yes">Required</td><td>Trusted placeholder index ya Canva shape ID</td></tr>
+          <tr><td class="k">content</td><td class="req yes">Required</td><td>Generated nonblank text</td></tr>
+          <tr><td class="k">slide_number</td><td class="req no">Parent only</td><td>Nested matching copy normalize hoti hai; conflict reject hota hai</td></tr>
+          <tr><td class="k">role</td><td class="req no">Input guidance</td><td>Trusted template metadata typography decide karti hai</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Automatic selection update</h2>
+    <p class="section-note">Automatic mode ab generic audience aur tone ke saath uploaded PDF/document ka bounded content excerpt bhi retrieval query mein use karta hai.</p>
+    <div class="pillars">
+      <div class="pillar doc"><span class="tag">Input</span><h3>Document-aware query</h3><p>Topic, complete demand, source content, audience, sections aur visual preference ek query banate hain.</p></div>
+      <div class="pillar store"><span class="tag">Search</span><h3>Hybrid ranking</h3><p>Elasticsearch keyword relevance aur embedding similarity se maximum five compatible candidates return karta hai.</p></div>
+      <div class="pillar pick"><span class="tag">Decision</span><h3>Deterministic best match</h3><p>watsonx best candidate select karta hai. Same template tab repeat ho sakta hai jab wahi strongest match ho ya indexed choices kam hon.</p></div>
     </div>
   </section>
 
@@ -334,7 +378,7 @@
         <dt>New location</dt><dd>minio://ppt-templates/White_Blue_and_Grey_Modern_Startup_Pitch_Deck_Presentation-...pptx</dd>
         <dt>Checksum</dt><dd>2337dad1c7c0…6eedc — match confirmed</dd>
         <dt>Elasticsearch doc</dt><dd>pptx_binary field removed, minio_bucket + minio_object_key added</dd>
-        <dt>Test suite</dt><dd>111 passed, 0 failed</dd>
+        <dt>Test suite</dt><dd>120 passed, 0 failed</dd>
       </dl>
     </div>
   </section>
@@ -369,4 +413,6 @@
 
 </div>
 
-<footer>PPT Template Populator — internal engineering summary · 2026-09-03</footer>
+<footer>PPT Template Populator - current engineering summary - 2026-09-07</footer>
+</body>
+</html>

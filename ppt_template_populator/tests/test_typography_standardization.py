@@ -1,12 +1,11 @@
-"""The house typography standard must be enforced on every populated target
-regardless of what the source template originally used: Aptos throughout,
-fixed per-role sizes/weights, a consistent line spacing, sub-bullets
+"""Template-derived typography must be enforced on every populated target:
+the existing font family, bounded role sizes, consistent line spacing, sub-bullets
 (outline level >= 1 inside a body target) one step down from body text, and
 PowerPoint's own dynamic shrink-to-fit disabled so those sizes hold."""
 from pathlib import Path
 
 from pptx import Presentation
-from pptx.enum.text import MSO_AUTO_SIZE
+from pptx.enum.text import MSO_AUTO_SIZE, PP_ALIGN
 from pptx.util import Pt
 
 from src.ppt_populator import populate_presentation
@@ -73,18 +72,21 @@ def test_standard_typography_overrides_original_font_by_role_and_level(tmp_path)
     body_shape = next(s for s in slide.shapes if s.placeholder_format is not None and s.placeholder_format.idx == body_idx)
 
     title_run = title_shape.text_frame.paragraphs[0].runs[0]
-    assert title_run.font.name == "Aptos" and title_run.font.size == Pt(30) and title_run.font.bold is True
+    assert title_run.font.name == "Calibri" and title_run.font.size == Pt(34) and title_run.font.bold is True
+    assert title_shape.text_frame.paragraphs[0].alignment == PP_ALIGN.CENTER
+    assert title_shape.text_frame.paragraphs[0].line_spacing == 1.08
+    assert title_run._r.get_or_add_rPr().get("spc") == "0"
 
     body_paragraphs = body_shape.text_frame.paragraphs
     assert body_paragraphs[0].text == "New top bullet" and body_paragraphs[0].level == 0
     top_run = body_paragraphs[0].runs[0]
-    assert top_run.font.name == "Aptos" and top_run.font.size == Pt(20) and top_run.font.bold is False
+    assert top_run.font.name == "Aptos" and top_run.font.size == Pt(18) and top_run.font.bold is False
 
     # Second line reused the original sub-bullet paragraph's level-1 pPr, so
     # it renders one step down at the sub-bullet size.
     assert body_paragraphs[1].text == "New sub bullet" and body_paragraphs[1].level == 1
     sub_run = body_paragraphs[1].runs[0]
-    assert sub_run.font.name == "Aptos" and sub_run.font.size == Pt(18) and sub_run.font.bold is False
+    assert sub_run.font.name == "Aptos" and sub_run.font.size == Pt(16.2) and sub_run.font.bold is False
 
     assert body_shape.text_frame.auto_size == MSO_AUTO_SIZE.NONE
     assert body_shape.text_frame.word_wrap is True

@@ -1,6 +1,8 @@
 # AI-Powered PowerPoint Template Populator
 
-This application turns an uploaded document (DOCX, PDF, TXT, MD, RTF, or legacy DOC) into a populated PowerPoint. Administrators ingest templates ahead of time. The backend stores template structure, semantic profile, embedding, and checksum in Elasticsearch, while the actual PPTX (and every user-uploaded source document) is stored as an object in MinIO. At generation time the user only uploads a document — topic, audience, tone, and slide count are all derived automatically — and either lets a watsonx.ai chat model pick the best template, or picks one manually from a list.
+For the consolidated architecture, setup, API, ingestion, security, testing, and operations guide, see [PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md).
+
+This application turns one or more uploaded PDF, DOCX, or TXT source documents into one populated PowerPoint. Administrators ingest templates ahead of time. The backend stores template structure, semantic profile, embedding, and checksum in Elasticsearch, while the actual PPTX is stored in MinIO. Streamlit remains the interactive frontend and FastAPI exposes the same service pipeline for programmatic clients.
 
 ## Architecture and ownership
 
@@ -13,7 +15,8 @@ Administrator CLI
   -> Elasticsearch: metadata + nested structure + vector + MinIO object reference (no binary)
 
 Streamlit user upload
-  -> user uploads one document (DOCX/PDF/TXT/MD/RTF/DOC) — nothing else to fill in
+  -> user uploads one or more PDF/DOCX/TXT sources for one presentation
+  -> each file is validated and extracted independently; duplicate paragraphs are removed
   -> text + title extracted locally (python-docx / pypdf / striprtf / plain text)
   -> original upload archived to MinIO (ppt-uploads bucket) for traceability
   -> topic/audience/tone/slide count derived automatically from the document
@@ -31,9 +34,15 @@ Automatic mode                              Manual mode
      safe placeholder content instead of failing the whole presentation
   -> python-pptx formatting-aware population
   -> UUID output download -> temporary source cleanup
+
+FastAPI client
+  -> document extraction or grounded JSON generation request
+  -> same service factory, retrieval, generation, validation and population modules
+  -> background job ID -> status polling -> confined PPTX download
 ```
 
-- **Streamlit** collects the uploaded document, shows an extraction preview, displays safe pipeline/selection evidence, and returns the final download. It never receives raw PPTX bytes, embeddings, or credentials directly — those stay in the backend/MinIO layer.
+- **Streamlit** collects the uploaded document and optional user instructions, shows an extraction preview, displays safe pipeline/selection evidence, and returns the final download.
+- **FastAPI** exposes typed health, extraction, template, generation-job and download endpoints. Swagger documentation is generated at `/docs`.
 - **Python backend** owns model calls, document text extraction, checksums, temporary files, response validation, and orchestration.
 - **Elasticsearch** stores catalog metadata, slide structure, dense vectors, and a `minio_bucket`/`minio_object_key` reference — never the PPTX binary itself. Candidate responses additionally exclude `template_embedding`.
 - **MinIO** stores the actual PPTX objects (`ppt-templates` bucket) and archived user uploads (`ppt-uploads` bucket) as S3-compatible object storage.
@@ -61,6 +70,7 @@ MINIO_SECURE=false
 MINIO_TEMPLATES_BUCKET=ppt-templates
 MINIO_UPLOADS_BUCKET=ppt-uploads
 MAX_UPLOAD_MB=25
+MAX_TOTAL_UPLOAD_MB=100
 MAX_REQUIRED_TARGETS_PER_CHUNK=12
 REQUEST_TIMEOUT_SECONDS=120
 TEMPLATE_SELECTION_CONFIDENCE=0.60
@@ -115,10 +125,10 @@ An index made by an older project version (which stored a `pptx_binary` field) i
 
 ## Generation workflow
 
-The user uploads exactly one document — nothing else to fill in. The backend:
+The user uploads one or more related source documents. A single-file upload remains fully supported. The backend:
 
 1. Extracts text and a title from the document (DOCX/PDF/TXT/MD/RTF natively; legacy DOC via best-effort text recovery).
-2. Archives the original upload to the `ppt-uploads` MinIO bucket.
+2. Archives each valid original upload separately to the `ppt-uploads` MinIO bucket.
 3. Derives `topic` (document title), `source_content` (extracted text), and sensible defaults for audience/tone/slide count (a word-count heuristic, ~120 words per slide, bounded 6–20).
 4. **Automatic mode:** embeds the derived requirements, runs BM25 + cosine similarity against indexed templates (metadata only, no binary), scores candidates, and lets watsonx Granite make the final selection (one repair allowed; invalid repair falls back to the highest-scoring candidate). **Manual mode:** uses the template the user picked directly, skipping retrieval and AI selection.
 5. Fetches the selected template's PPTX object from MinIO and verifies its SHA-256 checksum before opening it from a securely named temporary file.
@@ -127,13 +137,50 @@ The user uploads exactly one document — nothing else to fill in. The backend:
 
 Low selection confidence (automatic mode) produces a warning. No candidates, no usable templates, or incompatible embedding configurations stop safely.
 
+### Grounding and output accuracy
+
+The uploaded document is the only factual source of truth. The prompt keeps `factual_source_document` separate from `generation_guidance`; optional User Instructions guide tone, audience, focus, exclusions and design, but never supply facts. watsonx.ai is instructed not to invent facts, figures, names, dates, quotations or sources. Template selection uses a bounded grounded excerpt to control context size, while final slide generation receives the complete extracted source. Every chunk includes the current Pydantic JSON schema, trusted slide roles and exact character limits. Generation uses low temperature, strict validation, one controlled repair, focused target recovery and explicit fallback warnings.
+
 ## Start the application
 
 ```powershell
 streamlit run app.py
 ```
 
-The main screen shows a document uploader and a template-selection toggle (Automatic / Manual). There is still no way to ingest templates from the UI — that remains an administrator-only CLI action.
+The main screen shows a document uploader, optional **User Instructions**, and a template-selection toggle (Automatic / Manual). There is still no way to ingest templates from the UI — that remains an administrator-only CLI action.
+
+## FastAPI backend
+
+Start the REST service from the project directory:
+
+```powershell
+python -m uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+Open Swagger documentation at `http://localhost:8000/docs` or OpenAPI JSON at `http://localhost:8000/openapi.json`.
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/health` | Safe Elasticsearch, MinIO and watsonx configuration status |
+| `POST` | `/api/v1/documents/extract` | Validate and extract an uploaded document |
+| `GET` | `/api/v1/templates` | List safe indexed template summaries |
+| `POST` | `/api/v1/templates/select` | Run grounded hybrid retrieval and template reranking |
+| `POST` | `/api/v1/presentations` | Queue automatic or manual presentation generation |
+| `GET` | `/api/v1/jobs/{job_id}` | Read job status, stages, warnings and download URL |
+| `GET` | `/api/v1/jobs/{job_id}/download` | Download a completed PPTX from the confined output directory |
+
+`POST /api/v1/presentations` accepts JSON. Set `selection_mode` to `automatic`, or use `manual` with a non-empty `template_id`. `source_content` is factual source data; `user_instructions` is guidance only. The prototype job store is process-local, so use one Uvicorn worker. A production multi-worker deployment should replace `InMemoryJobStore` with a shared queue/database while keeping the endpoint models unchanged.
+
+```json
+{
+  "topic": "Women Empowerment in India",
+  "source_content": "Extracted factual document content...",
+  "audience": "Senior leadership",
+  "tone": "Formal",
+  "user_instructions": "Focus on measurable outcomes and exclude unrelated implementation detail.",
+  "selection_mode": "automatic"
+}
+```
 
 ## Verification
 
@@ -183,3 +230,22 @@ Use **Test watsonx configuration** in System status to discover embedding models
 Credentials are loaded from `.env` into backend-only settings, secret values use `SecretStr`, errors are masked, and neither credentials nor binary data are logged. Checksums are verified before parsing, paths/filenames are sanitized, output names use UUIDs, and no `eval`, pickle, or executable upload handling is used. Uploaded documents are validated for size before extraction and only text is extracted — no macros or embedded objects from the uploaded document are ever executed.
 
 `python-pptx` has no PowerPoint rendering engine, so text-fit estimates are approximate. Replacement preserves the first available paragraph/run formatting where possible, but complex mixed-run styling cannot always map to new prose. SmartArt, animations, embedded objects, advanced effects, and some chart internals have limited editing support; untouched XML content is generally retained because the presentation is edited rather than rebuilt. Legacy `.doc` extraction uses a best-effort printable-text scrape (there is no reliable pure-Python binary-DOC parser) — re-saving as `.docx` is recommended when fidelity matters.
+Generated presentations default to a 14-slide, single-purpose research narrative:
+title, agenda/introduction, problem, research gap, objectives, inputs, methodology,
+solution, analysis, findings, limitations, validation, novelty, and conclusion/Q&A.
+Requested counts are supported by retaining a related subset without combining
+unrelated purposes. The planner maps roles onto writable layouts, reuses compatible
+layouts when necessary, and keeps placeholder and Canva shape IDs under strict
+validation.
+
+The layout engine derives a proportional style profile from each selected template:
+aspect ratio, safe margins, title/body hierarchy, readable font sizes, card gaps,
+footer zone, and column capacity. It preserves the template font family, theme,
+colors, branding, and backgrounds. Re-ingest templates after upgrading to capture
+the new slide-dimension and font-family metadata; existing metadata uses conservative
+fallbacks.
+
+PDF extraction removes repeated page-edge headers and footers without silently
+truncating the extracted text. The planner distributes the complete source
+across grounded slide excerpts; user instructions affect presentation guidance
+only and are never treated as factual evidence.

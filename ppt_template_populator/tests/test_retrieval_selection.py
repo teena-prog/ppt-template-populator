@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 from src.elastic_client import MappingMigrationRequired, build_index_mapping, ensure_index
 from src.response_validator import ResponseValidationError
-from src.template_retriever import TemplateRetriever, candidate_match_score, validate_embedding
+from src.template_retriever import MAX_RETRIEVAL_QUERY_CHARACTERS, TemplateRetriever, build_retrieval_query, candidate_match_score, validate_embedding
 from src.template_selector import build_selection_messages, select_template, validate_selection
 
 
@@ -88,3 +88,14 @@ def test_selection_payload_excludes_bulky_per_slide_data():
     content = messages[-1]["content"]
     assert "template_profile" in content and "Template: One" in content
     assert "slides" not in content and "shapes" not in content and "x" * 500 not in content
+
+
+def test_retrieval_query_is_bounded_and_samples_large_grounded_document():
+    source = "BEGINFACT " + ("middleword " * 2000) + " ENDFACT"
+    query = build_retrieval_query(
+        topic="Women Empowerment", source_content=source,
+        audience="Leaders", additional_instructions="Use a formal tone",
+    )
+    assert len(query) <= MAX_RETRIEVAL_QUERY_CHARACTERS
+    assert "Women Empowerment" in query
+    assert "BEGINFACT" in query and "ENDFACT" in query

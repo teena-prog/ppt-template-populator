@@ -24,3 +24,12 @@ def test_temporary_pptx_is_cleaned(sample_pptx: Path):
     with temporary_pptx(data, checksum_sha256(data)) as path:
         created = path; assert path.exists()
     assert created is not None and not created.exists()
+
+
+def test_temporary_pptx_does_not_mask_downstream_errors(sample_pptx: Path):
+    data = sample_pptx.read_bytes(); created = None
+    with pytest.raises(RuntimeError, match="population failed"):
+        with temporary_pptx(data, checksum_sha256(data)) as path:
+            created = path
+            raise RuntimeError("population failed")
+    assert created is not None and not created.exists()

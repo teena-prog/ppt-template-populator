@@ -3,6 +3,7 @@ import pytest
 from src.security import SecurityError, sanitize_filename, validate_pptx
 from src.template_indexer import build_document
 from src.template_parser import parse_template
+from src.target_metadata import SEMANTIC_TARGET_ROLES
 
 
 def test_valid_ppt_parsing(sample_pptx: Path):
@@ -38,3 +39,10 @@ def test_document_construction(indexed_template):
     ],
 )
 def test_filename_sanitization(name, expected): assert sanitize_filename(name) == expected
+
+
+def test_parser_emits_canonical_roles_and_slide_semantics(sample_pptx: Path):
+    result = parse_template(sample_pptx, file_path="templates/sample.pptx")
+    slide = result["slides"][0]
+    assert set(target["role"] for target in slide["targets"]) <= SEMANTIC_TARGET_ROLES
+    assert set(("section_type", "title_target", "body_targets", "visual_targets", "writable_targets", "static_targets", "capacity_summary")) <= set(slide)

@@ -17,10 +17,25 @@ from src.security import safe_user_error, sanitize_filename, validate_pptx
 from src.template_binary import checksum_sha256
 from src.template_indexer import TemplateIndexer
 from src.template_parser import parse_template
+from src.template_retriever import TemplateRetriever
 from src.template_profile import build_template_profile, csv_values
 from src.watsonx_client import WatsonxClient
 
 MIME_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+def preserve_existing_identity_and_storage(document: dict, existing: dict) -> dict:
+    if not existing.get("template_id") or not existing.get("minio_bucket") or not existing.get("minio_object_key"):
+        raise ValueError("The existing checksum-identical template does not have a valid MinIO object reference.")
+    updated = dict(document)
+    updated.update({"template_id": existing["template_id"], "minio_bucket": existing["minio_bucket"], "minio_object_key": existing["minio_object_key"], "created_at": existing.get("created_at", document["created_at"])})
+    # A parser-metadata refresh should not erase catalogue descriptions when
+    # optional CLI flags were omitted from --update-existing.
+    for field in ("description", "use_cases", "target_audiences", "tones", "visual_style", "supported_sections"):
+        if updated.get(field) in (None, "", []):
+            updated[field] = existing.get(field, updated.get(field))
+    if updated.get("category") in (None, "", "General") and existing.get("category"):
+        updated["category"] = existing["category"]
+    return updated
 
 
 def parser() -> argparse.ArgumentParser:
@@ -65,14 +80,24 @@ def main() -> int:
         password = settings.elasticsearch_password.get_secret_value() if settings.elasticsearch_password else None
         client = create_client(settings.elasticsearch_url, settings.elasticsearch_username, password, settings.request_timeout_seconds)
         minio = create_minio_client(settings.minio_endpoint, settings.minio_access_key, settings.minio_secret_key.get_secret_value() if settings.minio_secret_key else None, settings.minio_secure)
-        put_object(minio, document["minio_bucket"], document["minio_object_key"], data, MIME_TYPE)
+        indexer = TemplateIndexer(client)
+        duplicate_id = indexer.duplicate_template_id(document["template_id"], document["checksum_sha256"])
+        uploaded_new_object = False
+        if duplicate_id and args.update_existing:
+            existing = TemplateRetriever(client).get(duplicate_id)
+            if not existing: raise ValueError("The existing checksum-identical template could not be retrieved.")
+            document = preserve_existing_identity_and_storage(document, existing)
+        else:
+            put_object(minio, document["minio_bucket"], document["minio_object_key"], data, MIME_TYPE)
+            uploaded_new_object = True
         try:
-            TemplateIndexer(client).index(document, update_existing=args.update_existing)
+            indexer.index(document, update_existing=args.update_existing)
         except Exception:
             # Roll back the just-uploaded binary so a failed/duplicate/rejected
             # index write never leaves an orphaned object in MinIO.
-            try: delete_object(minio, document["minio_bucket"], document["minio_object_key"])
-            except Exception: pass
+            if uploaded_new_object:
+                try: delete_object(minio, document["minio_bucket"], document["minio_object_key"])
+                except Exception: pass
             raise
         print(f"Ingested template '{document['template_name']}' ({document['template_id']}): {document['slide_count']} slides, {document['file_size']} bytes, embedding {document['embedding_model_id']} ({document['embedding_dimensions']} dimensions), stored at minio://{document['minio_bucket']}/{document['minio_object_key']}.")
         return 0

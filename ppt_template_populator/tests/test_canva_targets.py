@@ -59,9 +59,8 @@ def test_invented_canva_shape_id_is_rejected(canva_pptx):
 
 
 def test_canva_population_applies_standard_typography_and_preserves_color(canva_pptx, tmp_path):
-    # The house typography standard (Aptos, fixed per-role size/weight)
-    # deliberately overrides whatever size/font the source Canva deck used --
-    # only the run's color is a source property worth carrying through.
+    # The template-derived typography profile preserves its font family and
+    # clamps the title into the readable reference hierarchy.
     metadata = parse_template(canva_pptx, file_path="canva.pptx")
     target = next(item for item in metadata["slides"][0]["targets"] if item["existing_text"] == "Startup Business")
     assert target["role"] == "title"
@@ -74,7 +73,7 @@ def test_canva_population_applies_standard_typography_and_preserves_color(canva_
             if hasattr(shape, "shapes"): yield from walk(shape.shapes)
     shape = next(item for item in walk(prs.slides[0].shapes) if item.shape_id == target["target_id"])
     run = shape.text_frame.paragraphs[0].runs[0]
-    assert run.text == "EcoBin AI" and run.font.name == "Aptos" and run.font.size.pt == 30 and run.font.bold
+    assert run.text == "EcoBin AI" and run.font.name == (target.get("font_name") or "Aptos") and 28 <= run.font.size.pt <= 44 and run.font.bold
     assert run.font.color.rgb == RGBColor(12, 34, 56)
 
 
@@ -100,5 +99,5 @@ def test_minor_overflow_reduces_font_within_safe_minimum(canva_pptx, tmp_path):
     output, population_warnings = populate_presentation(canva_pptx, content, tmp_path / "out", metadata)
     prs = Presentation(output)
     shape = next(item for item in prs.slides[0].shapes if item.shape_id == target["target_id"])
-    assert 20 <= shape.text_frame.paragraphs[0].runs[0].font.size.pt < 32
+    assert 20 <= shape.text_frame.paragraphs[0].runs[0].font.size.pt < 36
     assert any("font size was reduced" in warning for warning in population_warnings)

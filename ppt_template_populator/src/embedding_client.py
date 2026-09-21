@@ -49,6 +49,13 @@ def _classified_error(exc: Exception, operation: str) -> EmbeddingDiagnosticErro
         return EmbeddingDiagnosticError("permission_failure", f"watsonx.ai denied permission during {operation}. Confirm project access and model entitlements.")
     if status == 404 or "not found" in text or "unavailable" in text:
         return EmbeddingDiagnosticError("unavailable_model", f"The embedding model was unavailable during {operation}.")
+    if status == 400 or "apirequestfailure" in name or any(term in text for term in ("token limit", "input length", "too long")):
+        return EmbeddingDiagnosticError(
+            "invalid_embedding_request",
+            f"watsonx.ai rejected the embedding request during {operation}. "
+            "The retrieval input is bounded; if this persists, use Test watsonx configuration "
+            "to verify that the indexed embedding model remains available.",
+        )
     if any(term in name or term in text for term in ("connection", "timeout", "network", "dns")):
         return EmbeddingDiagnosticError("network_failure", f"A network failure occurred during watsonx.ai {operation}.")
     return EmbeddingDiagnosticError("api_failure", f"watsonx.ai {operation} failed ({type(exc).__name__}).")

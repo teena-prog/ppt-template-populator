@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import io
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
 SUPPORTED_EXTENSIONS = {".docx", ".pdf", ".txt", ".md", ".markdown", ".rtf", ".doc"}
-MAX_TEXT_CHARACTERS = 60000
 
 
 class DocumentExtractionError(ValueError):
@@ -28,6 +28,14 @@ def _title_from_text(text: str, fallback: str) -> str:
     return fallback
 
 
+def _usable_document_title(value: str) -> bool:
+    normalized = re.sub(r"\s+", " ", value).strip().casefold()
+    if not normalized:
+        return False
+    generic = {"presentation", "powerpoint presentation", "microsoft powerpoint", "untitled", "document"}
+    return normalized not in generic and not any(marker in normalized for marker in ("pptxgenjs", "python-pptx", "libreoffice impress"))
+
+
 def _extract_docx(data: bytes) -> tuple[str, str]:
     from docx import Document
     document = Document(io.BytesIO(data))
@@ -46,7 +54,31 @@ def _extract_pdf(data: bytes) -> tuple[str, str]:
     from pypdf import PdfReader
     reader = PdfReader(io.BytesIO(data))
     pages = [page.extract_text() or "" for page in reader.pages]
-    text = "\n".join(page.strip() for page in pages if page.strip())
+    page_lines = [[line.strip() for line in page.splitlines() if line.strip()] for page in pages]
+    # Repeated page-edge text is normally a running header/footer. Compare a
+    # normalized form so page numbers such as "Report - 2" are also removed.
+    def edge_key(value: str) -> str:
+        if re.fullmatch(r"(?:page\s*)?\d+(?:\s*(?:of|/)\s*\d+)?", value, re.IGNORECASE):
+            return "__page_number__"
+        return value.casefold()
+
+    edge_counts: Counter[str] = Counter()
+    for lines in page_lines:
+        edge = {*lines[:2], *lines[-2:]}
+        edge_counts.update(edge_key(value) for value in edge if len(value) <= 180)
+    threshold = max(2, (len(page_lines) * 3 + 4) // 5)
+    repeated_edges = {value for value, count in edge_counts.items() if count >= threshold}
+    cleaned_pages = []
+    for lines in page_lines:
+        kept = []
+        for index, line in enumerate(lines):
+            normalized = edge_key(line)
+            is_edge = index < 2 or index >= max(0, len(lines) - 2)
+            if not (is_edge and normalized in repeated_edges):
+                kept.append(line)
+        if kept:
+            cleaned_pages.append("\n".join(kept))
+    text = "\n\n".join(cleaned_pages)
     title = ""
     try:
         title = str(reader.metadata.title or "").strip() if reader.metadata else ""
@@ -107,12 +139,10 @@ def extract_text(data: bytes, filename: str) -> ExtractedDocument:
     text = text.strip()
     if not text:
         raise DocumentExtractionError("No readable text could be extracted from the uploaded document.")
-    if len(text) > MAX_TEXT_CHARACTERS:
-        warnings.append(f"The document was truncated to {MAX_TEXT_CHARACTERS} characters for processing.")
-        text = text[:MAX_TEXT_CHARACTERS]
-
     fallback_title = Path(filename).stem.replace("_", " ").replace("-", " ").strip() or "Presentation"
-    title = title.strip() or _title_from_text(text, fallback_title)
+    title = title.strip()
+    if not _usable_document_title(title):
+        title = _title_from_text(text, fallback_title)
     return ExtractedDocument(title=title[:120] or fallback_title, text=text, warnings=warnings)
 
 

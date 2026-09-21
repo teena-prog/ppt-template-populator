@@ -49,3 +49,11 @@ def test_estimate_slide_count_scales_with_word_count_within_bounds():
     long_text = "word " * 3000
     assert estimate_slide_count(short_text) == 6
     assert estimate_slide_count(long_text) == 20
+
+
+def test_pdf_ignores_pptxgenjs_metadata_title(monkeypatch):
+    page = type("Page", (), {"extract_text": lambda self: "Women Empowerment in India\nGrounded source text."})()
+    metadata = type("Metadata", (), {"title": "PptxGenJS Presentation"})()
+    monkeypatch.setattr("pypdf.PdfReader", lambda stream: type("Reader", (), {"pages": [page], "metadata": metadata})())
+    result = extract_text(b"mock-pdf", "source.pdf")
+    assert result.title == "Women Empowerment in India"

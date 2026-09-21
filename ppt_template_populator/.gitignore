@@ -5,6 +5,8 @@ __pycache__/
 .pytest_cache/
 .streamlit/
 generated/*.pptx
+generated/*.pdf
+generated/*_render/
 templates/*.pptx
 data/*.json
 .coverage

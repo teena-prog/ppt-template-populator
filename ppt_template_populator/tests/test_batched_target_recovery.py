@@ -1,7 +1,9 @@
 import json
 from types import SimpleNamespace
+import pytest
 
 from src.pipeline import GenerationPipeline
+from src.response_validator import ResponseValidationError
 
 
 def _large_recovery_template(target_count=27):
@@ -141,22 +143,21 @@ class UnknownTargetWatson:
         )
 
 
-def test_unknown_model_target_is_discarded_and_required_targets_recover(tmp_path):
+def test_unknown_model_target_is_rejected_when_controlled_repair_repeats_it(tmp_path):
     watson = UnknownTargetWatson()
     pipeline = GenerationPipeline(None, watson, tmp_path, tmp_path)
 
-    content, warnings, calls = pipeline._generate_validated(
-        model_id="model",
-        template=_large_recovery_template(target_count=2),
-        message_args={
-            "topic": "Services",
-            "source_content": "Facts",
-            "audience": "Customers",
-            "tone": "Professional",
-            "additional_instructions": "",
-        },
-    )
+    with pytest.raises(ResponseValidationError, match="Unknown or non-required shape 999"):
+        pipeline._generate_validated(
+            model_id="model",
+            template=_large_recovery_template(target_count=2),
+            message_args={
+                "topic": "Services",
+                "source_content": "Facts",
+                "audience": "Customers",
+                "tone": "Professional",
+                "additional_instructions": "",
+            },
+        )
 
-    assert calls == 2
-    assert {item.target_id for item in content.slides[0].targets} == {1, 2}
-    assert any("Discarded unknown" in warning for warning in warnings)
+    assert watson.calls == 2

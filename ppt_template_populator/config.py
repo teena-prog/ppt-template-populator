@@ -2,12 +2,30 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+import tempfile
 from dotenv import load_dotenv
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
+
+
+def _directory_writable(directory: Path) -> bool:
+    probe: Path | None = None
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=directory, prefix=".write-test-", delete=False) as handle:
+            probe = Path(handle.name)
+        return True
+    except OSError:
+        return False
+    finally:
+        if probe is not None:
+            try:
+                probe.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 class Settings(BaseSettings):
@@ -27,6 +45,7 @@ class Settings(BaseSettings):
     minio_templates_bucket: str = Field(default="ppt-templates", alias="MINIO_TEMPLATES_BUCKET")
     minio_uploads_bucket: str = Field(default="ppt-uploads", alias="MINIO_UPLOADS_BUCKET")
     max_upload_mb: int = Field(default=25, alias="MAX_UPLOAD_MB", ge=1, le=200)
+    max_total_upload_mb: int = Field(default=100, alias="MAX_TOTAL_UPLOAD_MB", ge=1, le=1000)
     request_timeout_seconds: int = Field(default=120, alias="REQUEST_TIMEOUT_SECONDS", ge=10, le=1800)
     template_selection_confidence: float = Field(default=0.60, alias="TEMPLATE_SELECTION_CONFIDENCE", ge=0, le=1)
     max_required_targets_per_chunk: int = Field(default=12, alias="MAX_REQUIRED_TARGETS_PER_CHUNK", ge=1, le=100)
@@ -35,8 +54,13 @@ class Settings(BaseSettings):
     data_dir: Path = BASE_DIR / "data"
 
     def ensure_directories(self) -> None:
-        for directory in (self.templates_dir, self.generated_dir, self.data_dir):
+        for directory in (self.templates_dir, self.data_dir):
             directory.mkdir(parents=True, exist_ok=True)
+        if not _directory_writable(self.generated_dir):
+            fallback = BASE_DIR.parent / "runtime_generated"
+            if not _directory_writable(fallback):
+                raise PermissionError("No writable presentation output directory is available.")
+            self.generated_dir = fallback
 
     def watsonx_missing(self) -> list[str]:
         values = {"WATSONX_API_KEY": self.watsonx_api_key.get_secret_value() if self.watsonx_api_key else "", "WATSONX_URL": self.watsonx_url, "WATSONX_PROJECT_ID": self.watsonx_project_id or ""}

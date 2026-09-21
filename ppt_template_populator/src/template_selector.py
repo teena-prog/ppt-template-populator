@@ -21,7 +21,7 @@ SELECTION_SUMMARY_FIELDS = {
     "template_id", "template_name", "description", "category", "use_cases", "target_audiences",
     "tones", "visual_style", "supported_sections", "slide_count", "has_image_placeholders",
     "has_chart_placeholders", "template_profile", "retrieval_score", "requirement_match_score",
-    "matched_requirements", "unmatched_requirements",
+    "rerank_score", "matched_requirements", "unmatched_requirements",
 }
 
 
@@ -54,7 +54,7 @@ def select_template(watsonx: Any, model_id: str, requirements: dict[str, Any], c
     response = watsonx.chat(model_id, messages, max_tokens=1000, temperature=0)
     try: return validate_selection(response.text, ids), False
     except ResponseValidationError as first_error:
-        repaired = watsonx.chat(model_id, build_repair_messages(messages, response.text, first_error.errors), max_tokens=1000, temperature=0)
+        repaired = watsonx.chat(model_id, build_repair_messages(messages, response.text, first_error.errors, response_schema=TemplateSelection.model_json_schema()), max_tokens=1000, temperature=0)
         try: return validate_selection(repaired.text, ids), True
         except ResponseValidationError:
             best = candidates[0]
